@@ -359,6 +359,7 @@ void* mm_malloc (size_t size) {
   int minimumSize = 32;
   BlockInfo * ptrFreeBlock = NULL;
   BlockInfo * ptrMiniBlock = NULL;
+  BlockInfo * ptrUpcomingBlock = NULL;
   size_t blockSize;
   size_t precedingBlockUseTag;
 
@@ -387,48 +388,48 @@ void* mm_malloc (size_t size) {
 
   //Use the searchFreeList function to find a free block in our heap or create a new free block if one isn't availiable.
    ptrFreeBlock = searchFreeList(reqSize);
-
+   //a free block was unavailable, request more space and set the freepointer block to the newly implemented space in the heap.
     if (ptrFreeBlock == NULL) {
-        // Gets More space if there wasn't a big enough free block
         requestMoreSpace(reqSize);
-        ptrFreeBlock = searchFreeList(reqSize);     // Try again
-        precedingBlockUseTag = TAG_PRECEDING_USED;  // ??? Not sure yet
-    }
-    else {
-        // Get allocation status of preceeding block
-        precedingBlockUseTag = ptrFreeBlock->sizeAndTags & TAG_PRECEDING_USED;
-    }
+        ptrFreeBlock = searchFreeList(reqSize);
+           
+     }
 
-    // Updates the following block's previous tag to used.
+    //Determines whether or not the previous block is allocated or not.
+    precedingBlockUseTag = ptrFreeBlock->sizeAndTags & TAG_PRECEDING_USED;
+
+    // nark the previous block as allocated.
     blockSize = SIZE(ptrFreeBlock->sizeAndTags);
-    removeFreeBlock(ptrFreeBlock);      // Delete from free-list immediately!
+    // remove the newly allocated block from the free list
+    removeFreeBlock(ptrFreeBlock);
 
-    // Split large block
-    // TODO: make it such that first half for free, last half for allocation!!!
-    if ((blockSize - reqSize) > MIN_BLOCK_SIZE) {
-        // Creates a new block so you don't have a giant unused block
-        BlockInfo *newBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, reqSize);
-        // The new block's preceeding block is used to hold reqSize, while itself is a free block
-        newBlock->sizeAndTags = ((blockSize - reqSize) | TAG_PRECEDING_USED) & (~TAG_USED);
+    //if it is possible to split, we will create a new split block
+    if ((blockSize - reqSize) >= MIN_BLOCK_SIZE) {
+        // creates a new block that is will be split between allocated, and free space.
+        ptrMiniBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, reqSize);
+        // Sets the size of the splitting block to allocation size (this is the size that remains after freeing the block.)
+        ptrMiniBlock->sizeAndTags = (blockSize-reqSize) | TAG_PRECEDING_USED;
+       
+        
 
-        // Updates the TAG_PROCEEDING_USED on the allocated block
+        // Updates both the header and boundary tags
+      
+        ptrMiniBlock->sizeAndTags = (blockSize-reqSize) | TAG_PRECEDING_USED;
+        ((BlockInfo*)UNSCALED_POINTER_ADD(ptrMiniBlock, blockSize-reqSize-WORD_SIZE))->sizeAndTags = (blockSize-reqSize) | TAG_PRECEDING_USED;
+
         ptrFreeBlock->sizeAndTags = reqSize | precedingBlockUseTag;
-
-        // Updates the boundary tag
-        *((size_t *) UNSCALED_POINTER_ADD(ptrFreeBlock, (reqSize - WORD_SIZE))) = reqSize;       // Footer for allocated block
-        *((size_t *) UNSCALED_POINTER_ADD(ptrFreeBlock, (blockSize - WORD_SIZE))) = blockSize - reqSize; // Footer for newly created free block
-
         // Inserts the new block into the free list
-        insertFreeBlock(newBlock);
+        insertFreeBlock(ptrMiniBlock);
     }
     else {
         // Updates the following blocks preceding used and the boundary tag
-        *((size_t *) UNSCALED_POINTER_ADD(ptrFreeBlock, (blockSize - WORD_SIZE))) = blockSize;   // Footer for allocated block
-        BlockInfo *nextBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, blockSize);
-        nextBlock->sizeAndTags = nextBlock->sizeAndTags | TAG_PRECEDING_USED;
+        //*((size_t *) UNSCALED_POINTER_ADD(ptrFreeBlock, (blockSize - WORD_SIZE))) = blockSize;   // Footer for allocated block
+        ptrUpcomingBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, blockSize);
+        ptrUpcomingBlock->sizeAndTags = ptrUpcomingBlock->sizeAndTags | TAG_PRECEDING_USED;
     }
 
     // Sets the used tag to true and removes it from the free list
+    
     ptrFreeBlock->sizeAndTags = ptrFreeBlock->sizeAndTags | TAG_USED;
     ptrFreeBlock->sizeAndTags = ptrFreeBlock->sizeAndTags | precedingBlockUseTag;
 
