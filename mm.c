@@ -356,7 +356,9 @@ int mm_init () {
 /* Allocate a block of size size and return a pointer to it. */
 void* mm_malloc (size_t size) {
   size_t reqSize;
+  int minimumSize = 32;
   BlockInfo * ptrFreeBlock = NULL;
+  BlockInfo * ptrMiniBlock = NULL;
   size_t blockSize;
   size_t precedingBlockUseTag;
 
@@ -381,17 +383,89 @@ void* mm_malloc (size_t size) {
   // Implement mm_malloc.  You can change or remove any of the above
   // code.  It is included as a suggestion of where to start.
   // You will want to replace this return statement...
-  return NULL; 
+  
+
+  //Use the searchFreeList function to find a free block in our heap or create a new free block if one isn't availiable.
+   ptrFreeBlock = searchFreeList(reqSize);
+
+    if (ptrFreeBlock == NULL) {
+        // Gets More space if there wasn't a big enough free block
+        requestMoreSpace(reqSize);
+        ptrFreeBlock = searchFreeList(reqSize);     // Try again
+        precedingBlockUseTag = TAG_PRECEDING_USED;  // ??? Not sure yet
+    }
+    else {
+        // Get allocation status of preceeding block
+        precedingBlockUseTag = ptrFreeBlock->sizeAndTags & TAG_PRECEDING_USED;
+    }
+
+    // Updates the following block's previous tag to used.
+    blockSize = SIZE(ptrFreeBlock->sizeAndTags);
+    removeFreeBlock(ptrFreeBlock);      // Delete from free-list immediately!
+
+    // Split large block
+    // TODO: make it such that first half for free, last half for allocation!!!
+    if ((blockSize - reqSize) > MIN_BLOCK_SIZE) {
+        // Creates a new block so you don't have a giant unused block
+        BlockInfo *newBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, reqSize);
+        // The new block's preceeding block is used to hold reqSize, while itself is a free block
+        newBlock->sizeAndTags = ((blockSize - reqSize) | TAG_PRECEDING_USED) & (~TAG_USED);
+
+        // Updates the TAG_PROCEEDING_USED on the allocated block
+        ptrFreeBlock->sizeAndTags = reqSize | precedingBlockUseTag;
+
+        // Updates the boundary tag
+        *((size_t *) UNSCALED_POINTER_ADD(ptrFreeBlock, (reqSize - WORD_SIZE))) = reqSize;       // Footer for allocated block
+        *((size_t *) UNSCALED_POINTER_ADD(ptrFreeBlock, (blockSize - WORD_SIZE))) = blockSize - reqSize; // Footer for newly created free block
+
+        // Inserts the new block into the free list
+        insertFreeBlock(newBlock);
+    }
+    else {
+        // Updates the following blocks preceding used and the boundary tag
+        *((size_t *) UNSCALED_POINTER_ADD(ptrFreeBlock, (blockSize - WORD_SIZE))) = blockSize;   // Footer for allocated block
+        BlockInfo *nextBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, blockSize);
+        nextBlock->sizeAndTags = nextBlock->sizeAndTags | TAG_PRECEDING_USED;
+    }
+
+    // Sets the used tag to true and removes it from the free list
+    ptrFreeBlock->sizeAndTags = ptrFreeBlock->sizeAndTags | TAG_USED;
+    ptrFreeBlock->sizeAndTags = ptrFreeBlock->sizeAndTags | precedingBlockUseTag;
+
+    // Returns the pointer which points to the data payload, not the beginning of block
+    return (UNSCALED_POINTER_ADD(ptrFreeBlock, WORD_SIZE));
 }
 
 /* Free the block referenced by ptr. */
 void mm_free (void *ptr) {
-  size_t payloadSize;
+  // size_t payloadSize;
+  size_t blockSize;
+  size_t precedingBlockUseTag;
   BlockInfo * blockInfo;
   BlockInfo * followingBlock;
 
   // Implement mm_free.  You can change or remove the declaraions
   // above.  They are included as minor hints.
+  blockInfo = (BlockInfo*)UNSCALED_POINTER_SUB(ptr, WORD_SIZE);
+  blockSize = SIZE(blockInfo->sizeAndTags);
+  precedingBlockUseTag = blockInfo->sizeAndTags & TAG_PRECEDING_USED;
+  blockInfo->sizeAndTags = blockSize | precedingBlockUseTag;
+
+  ((BlockInfo*)UNSCALED_POINTER_ADD(blockInfo,blockSize-WORD_SIZE))->sizeAndTags = blockInfo->sizeAndTags;
+
+  // Erase the TAG_PRECEDING_USED bit in the next block header in memory if possible
+  //  followingBlock = ((BlockInfo*)POINTER_ADD(blockInfo,blockSize));
+  //  if (followingBlock != mem_heap_hi()) {
+  //    followingBlock->sizeAndTags = followingBlock->sizeAndTags & ~TAG_PRECEDING_USED;
+  //    if ((followingBlock->sizeAndTags) & 1 == 0) {
+  //      ((BlockInfo*)POINTER_ADD(followingBlock,(followingBlock->sizeAndTags)-WORD_SIZE))->sizeAndTags = followingBlock->sizeAndTags;
+  //    }
+  //  }
+  
+  // Add free block and coalesce any remaining blocks
+  insertFreeBlock(blockInfo);
+  coalesceFreeBlock(blockInfo);
+
 
 }
 
