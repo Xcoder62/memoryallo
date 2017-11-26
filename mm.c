@@ -352,6 +352,25 @@ int mm_init () {
   return 0;
 }
 
+void split(BlockInfo* ptrBlock, size_t reqSize){
+    BlockInfo * ptrMiniBlock = NULL;
+    size_t precedingBlockUseTag;
+    size_t blockSize;
+    //Determines status depending on whether or not the previous block is allocated or not.
+    precedingBlockUseTag = ptrBlock->isAllocated;
+    blockSize = SIZE(ptrBlock->sizeAndTags);
+   // creates a new splitting block that will be split into allocation and free sizes.
+    ptrMiniBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrBlock, reqSize);
+    // Sets the size of the splitting block to allocation size (this is the size that remains after freeing the block using the requested size.)
+    ptrMiniBlock->sizeAndTags = (blockSize - reqSize) | TAG_PRECEDING_USED;
+    // Updates both the header and boundary tags
+    ((BlockInfo*)UNSCALED_POINTER_ADD(ptrMiniBlock, blockSize - reqSize - WORD_SIZE))->sizeAndTags = (blockSize - reqSize) | TAG_PRECEDING_USED;
+
+    ptrBlock->sizeAndTags = reqSize | precedingBlockUseTag;
+    // Inserts the new split block into the free list.
+    insertFreeBlock(ptrMiniBlock);
+}
+
 
 // TOP-LEVEL ALLOCATOR INTERFACE ------------------------------------
 
@@ -360,7 +379,7 @@ int mm_init () {
 void* mm_malloc (size_t size) {
   size_t reqSize;
   BlockInfo * ptrFreeBlock = NULL;
-  BlockInfo * ptrMiniBlock = NULL;
+  BlockInfo * ptrUpdateBlock = NULL;
   size_t blockSize;
   size_t precedingBlockUseTag;
 
@@ -392,39 +411,22 @@ void* mm_malloc (size_t size) {
   //a free block was unavailable, request more space and set the freepointer block to the newly implemented space in the heap.
   if (ptrFreeBlock == NULL) {
     requestMoreSpace(reqSize);
-    ptrFreeBlock = searchFreeList(reqSize);
-
+    return mm_malloc(size);
   }
-
-  //Determines whether or not the previous block is allocated or not.
-  precedingBlockUseTag = ptrFreeBlock->isAllocated;
-  // nark the previous block as allocated.
+  
   blockSize = SIZE(ptrFreeBlock->sizeAndTags);
   // remove the newly allocated block from the free list
   removeFreeBlock(ptrFreeBlock);
 
   //if it is possible to split, we will create a new split block starting with the allocation portion
   if ((blockSize - reqSize) >= MIN_BLOCK_SIZE) {
-    // creates a new splitting block that will be split into allocation and free sizes.
-    ptrMiniBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, reqSize);
-    // Sets the size of the splitting block to allocation size (this is the size that remains after freeing the block using the requested size.)
-    ptrMiniBlock->sizeAndTags = (blockSize - reqSize) | TAG_PRECEDING_USED;
-    // Updates both the header and boundary tags
-    ((BlockInfo*)UNSCALED_POINTER_ADD(ptrMiniBlock, blockSize - reqSize - WORD_SIZE))->sizeAndTags = (blockSize - reqSize) | TAG_PRECEDING_USED;
-
-    ptrFreeBlock->sizeAndTags = reqSize | precedingBlockUseTag;
-    // Inserts the new split block into the free list.
-    insertFreeBlock(ptrMiniBlock);
+    split(ptrFreeBlock, reqSize);
   }
-  else {
-    // if a split isn't neccesary, use the following free data.
-    ptrMiniBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, blockSize);
-    ptrMiniBlock->sizeAndTags = ptrMiniBlock->sizeAndTags | TAG_PRECEDING_USED;
-  }
-
-  // removes the recently used freeblock from the free list.
-  //removeFreeBlock(ptrFreeBlock);
-  ptrFreeBlock->sizeAndTags = ptrFreeBlock->sizeAndTags | TAG_USED;
+  ptrFreeBlock->sizeAndTags = ptrFreeBlock-> sizeAndTags | TAG_USED;
+  
+  ptrUpdateBlock = (BlockInfo *) UNSCALED_POINTER_ADD(ptrFreeBlock, blockSize);
+  ptrUpdateBlock->sizeAndTags = ptrUpdateBlock-> sizeAndTags | TAG_PRECEDING_USED;
+  
 
   // Returns the pointer which points to the data payload, not the beginning of block
   return (UNSCALED_POINTER_ADD(ptrFreeBlock, WORD_SIZE));
