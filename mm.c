@@ -1,3 +1,4 @@
+// Group Partners: Cedric Mendes, Jennifer Feng
 /*-------------------------------------------------------------------
  * Lab 5 Starter code:
  *        single doubly-linked free block list with LIFO policy
